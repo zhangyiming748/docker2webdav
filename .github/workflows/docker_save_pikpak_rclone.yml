@@ -1,0 +1,161 @@
+# 工作流名称：将 Docker 镜像备份到 PikPak（使用 rclone）
+name: Docker Image Backup to PikPak (rclone)
+
+# 触发条件：当推送到 pikpak 分支或手动触发时执行
+on:
+  push:
+    branches: [ pikpak ]
+  workflow_dispatch:
+
+jobs:
+  backup-docker-images:
+    runs-on: ubuntu-latest
+    
+    steps:
+    # 步骤 1：检出代码仓库，获取 images.txt 文件
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # 步骤 2：设置 Docker Buildx
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    # 步骤 3：安装 rclone
+    - name: Install rclone
+      run: |
+        curl https://rclone.org/install.sh | sudo bash
+        rclone version
+
+    # 步骤 4：配置 rclone for PikPak
+    - name: Configure rclone for PikPak
+      env:
+        PIKPAK_USER: ${{ secrets.PIKPAK_USER }}
+        PIKPAK_PASS: ${{ secrets.PIKPAK_PASS }}
+      run: |
+        mkdir -p ~/.config/rclone
+        echo "[pikpak]" > ~/.config/rclone/rclone.conf
+        echo "type = pikpak" >> ~/.config/rclone/rclone.conf
+        echo "user = ${PIKPAK_USER}" >> ~/.config/rclone/rclone.conf
+        echo "pass = ${PIKPAK_PASS}" >> ~/.config/rclone/rclone.conf
+        
+        echo "Rclone configuration created:"
+        cat ~/.config/rclone/rclone.conf
+        
+        echo ""
+        echo "Testing PikPak connection..."
+        rclone lsd pikpak: || echo "Connection test completed"
+
+    # 步骤 5：遍历 images.txt 中的每一行，处理对应的 Docker 镜像
+    - name: Process each Docker image
+      env:
+        PIKPAK_USER: ${{ secrets.PIKPAK_USER }}
+        PIKPAK_PASS: ${{ secrets.PIKPAK_PASS }}
+      run: |
+        echo "=== Starting Docker Image Backup Process ==="
+        echo "Reading images from images.txt..."
+        
+        # 检查 images.txt 是否存在
+        if [ ! -f "images.txt" ]; then
+          echo "Error: images.txt file not found!"
+          exit 1
+        fi
+        
+        # 显示文件内容
+        echo "Contents of images.txt:"
+        cat images.txt
+        echo "---"
+        
+        # 计数器
+        count=0
+        success=0
+        failed=0
+        
+        while IFS= read -r image || [ -n "$image" ]; do
+          # 跳过空行和以 # 开头的注释行
+          if [[ -z "$image" || "$image" =~ ^[[:space:]]*#.*$ || "$image" =~ ^[[:space:]]*$ ]]; then
+            echo "Skipping empty line or comment: '$image'"
+            continue
+          fi
+          
+          count=$((count + 1))
+          echo ""
+          echo "=== Processing image $count: $image ==="
+          
+          # 如果镜像名没有指定标签，则默认添加 :latest 标签
+          if [[ ! "$image" =~ : ]]; then
+            image="${image}:latest"
+            echo "Added default tag: $image"
+          fi
+          
+          # 将镜像名中的特殊字符替换为下划线，生成安全的文件名
+          filename=$(echo "$image" | sed 's/[\/:*?"<>|]/_/g').tar
+          echo "Filename will be: $filename"
+          
+          # 从 Docker Hub 拉取指定的镜像
+          echo "Pulling image: $image"
+          if ! docker pull "$image"; then
+            echo "❌ Error: Failed to pull image $image. Skipping..."
+            failed=$((failed + 1))
+            continue
+          fi
+          echo "✅ Successfully pulled: $image"
+          
+          # 将 Docker 镜像保存为 tar 归档文件
+          echo "Saving image to: $filename"
+          if ! docker save -o "$filename" "$image"; then
+            echo "❌ Error: Failed to save image $image. Skipping..."
+            failed=$((failed + 1))
+            continue
+          fi
+          echo "✅ Successfully saved: $filename"
+          
+          # 显示文件大小
+          filesize=$(du -h "$filename" | cut -f1)
+          echo "File size: $filesize"
+          
+          # 使用 rclone 上传到 PikPak
+          echo "Uploading $filename to PikPak /images/ directory..."
+          if rclone copy "$filename" pikpak:/images/ --progress --retries 3 --retry-sleep 5s; then
+            echo "✅ Successfully uploaded: $filename"
+            success=$((success + 1))
+            
+            # 验证文件是否存在
+            echo "Verifying upload..."
+            if rclone ls pikpak:/images/ | grep -q "$filename"; then
+              echo "✅ File verified on PikPak"
+            else
+              echo "⚠️  Warning: File upload reported success but verification pending"
+            fi
+          else
+            echo "❌ Error: Failed to upload $filename via rclone"
+            failed=$((failed + 1))
+          fi
+          
+          # 清理本地文件
+          echo "Cleaning up..."
+          rm -f "$filename"
+          docker rmi "$image" || true
+          
+          echo "=== Completed processing: $image ==="
+          echo ""
+        done < images.txt
+        
+        echo ""
+        echo "========================================"
+        echo "=== Backup Process Summary ==="
+        echo "Total images processed: $count"
+        echo "Successful: $success"
+        echo "Failed: $failed"
+        echo "========================================"
+        
+        # 列出 PikPak /images 目录的内容
+        echo ""
+        echo "Files in PikPak /images directory:"
+        rclone ls pikpak:/images/ || echo "Unable to list directory"
+        
+        if [ $failed -gt 0 ]; then
+          echo "⚠️  Some images failed to process. Check logs above."
+          exit 1
+        else
+          echo "✅ All images processed successfully!"
+        fi
