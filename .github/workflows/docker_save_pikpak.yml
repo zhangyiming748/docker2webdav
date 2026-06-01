@@ -28,11 +28,20 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v4
 
-    # 步骤 3：安装 curl 工具，用于后续通过 HTTP 协议上传文件到 WebDAV
+    # 步骤 3：安装 curl 工具,用于后续通过 HTTP 协议上传文件到 WebDAV
     - name: Install WebDAV client (curl)
       run: |
         sudo apt-get update
         sudo apt-get install -y curl
+    
+    # 步骤 3.5：调试 - 打印 WebDAV URL
+    - name: Debug - Print WebDAV URL
+      run: |
+        echo "=== WebDAV Configuration ==="
+        echo "WEBDAV_URL: ${WEBDAV_URL}"
+        echo "WEBDAV_USER: ${WEBDAV_USER}"
+        echo "WEBDAV_BEARERTOKEN exists: $([ -n "${WEBDAV_BEARERTOKEN}" ] && echo 'YES' || echo 'NO')"
+        echo "==========================="
 
     # 步骤 4：遍历 images.txt 中的每一行，处理对应的 Docker 镜像
     - name: Process each Docker image
