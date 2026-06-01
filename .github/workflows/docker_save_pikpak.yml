@@ -32,17 +32,17 @@ jobs:
       run: |
         echo "=== WebDAV Configuration ==="
         echo "WEBDAV_URL: https://dav.mypikpak.com/images"
-        echo "BEARERTOKEN length: 24"
-        echo "BEARERTOKEN first 10 chars: c3l5eTp4ZD..."
-        echo "Authentication method: Bearer Token (Hardcoded)"
+        echo "Username: syyy"
+        echo "Password length: ${#WEBDAV_PWD}"
+        echo "Authentication method: Basic Auth (Hardcoded)"
         echo "==========================="
 
     # 步骤 3.6：测试 WebDAV 连接
     - name: Test WebDAV Connection
       run: |
-        echo "Testing WebDAV connection..."
+        echo "Testing WebDAV connection with Basic Auth..."
         test_code=$(curl -X PROPFIND \
-          -H "Authorization: Bearer c3l5eTp4ZG1qZGVpYQ==" \
+          -u "syyy:xdmjdeia" \
           -H "Content-Type: application/xml" \
           -d '<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:"><D:prop><D:displayname/></D:prop></D:propfind>' \
           -w "%{http_code}" \
@@ -56,7 +56,7 @@ jobs:
         if [ "$test_code" = "207" ] || [ "$test_code" = "200" ]; then
           echo "✅ WebDAV connection successful!"
         elif [ "$test_code" = "401" ]; then
-          echo "❌ Authentication failed (401). Token is invalid!"
+          echo "❌ Authentication failed (401). Username or password is incorrect!"
           exit 1
         elif [ "$test_code" = "404" ]; then
           echo "⚠️  Path not found (404). The directory might not exist yet."
@@ -133,7 +133,7 @@ jobs:
           echo "Uploading $filename to https://dav.mypikpak.com/images/$filename"
           upload_result=0
           http_code=$(curl -T "$filename" \
-            -H "Authorization: Bearer c3l5eTp4ZG1qZGVpYQ==" \
+            -u "syyy:xdmjdeia" \
             -H "Expect:" \
             --max-time 3600 \
             --retry 3 \
