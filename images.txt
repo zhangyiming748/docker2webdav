@@ -1,2 +1,1 @@
-zhangyiming748/stand
-zhangyiming748/stand_with_gpu
+debian:trixie

@@ -68,10 +68,20 @@ jobs:
             # 如果设置了 Bearer Token，则使用 Token 进行认证
             curl -T "$filename" \
               -H "Authorization: Bearer ${WEBDAV_BEARERTOKEN}" \
+              -H "Expect:" \
+              --max-time 3600 \
+              --retry 3 \
+              --retry-delay 5 \
               "${WEBDAV_URL}/$filename"
           else
             # 否则回退到基本认证（用户名/密码）
-            curl -T "$filename" -u "${WEBDAV_USER}:${WEBDAV_PWD}" "${WEBDAV_URL}/$filename"
+            curl -T "$filename" \
+              -u "${WEBDAV_USER}:${WEBDAV_PWD}" \
+              -H "Expect:" \
+              --max-time 3600 \
+              --retry 3 \
+              --retry-delay 5 \
+              "${WEBDAV_URL}/$filename"
           fi
           
           # 清理本地文件：删除生成的 tar 文件和已拉取的 Docker 镜像以释放空间
