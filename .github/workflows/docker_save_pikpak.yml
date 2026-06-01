@@ -111,35 +111,42 @@ jobs:
           # 使用 curl 将 tar 文件上传到 WebDAV 服务器
           echo "Uploading $filename to WebDAV at ${WEBDAV_URL}/$filename"
           upload_result=0
+          http_code=""
           if [ -n "${WEBDAV_BEARERTOKEN}" ]; then
             # 如果设置了 Bearer Token，则使用 Token 进行认证
             echo "Using Bearer Token authentication"
-            curl -T "$filename" \
+            http_code=$(curl -T "$filename" \
               -H "Authorization: Bearer ${WEBDAV_BEARERTOKEN}" \
               -H "Expect:" \
               --max-time 3600 \
               --retry 3 \
               --retry-delay 5 \
-              -v \
-              "${WEBDAV_URL}/$filename" || upload_result=$?
+              -w "%{http_code}" \
+              -o /dev/null \
+              -s \
+              "${WEBDAV_URL}/$filename") || upload_result=$?
           else
             # 否则回退到基本认证（用户名/密码）
             echo "Using Basic authentication"
-            curl -T "$filename" \
+            http_code=$(curl -T "$filename" \
               -u "${WEBDAV_USER}:${WEBDAV_PWD}" \
               -H "Expect:" \
               --max-time 3600 \
               --retry 3 \
               --retry-delay 5 \
-              -v \
-              "${WEBDAV_URL}/$filename" || upload_result=$?
+              -w "%{http_code}" \
+              -o /dev/null \
+              -s \
+              "${WEBDAV_URL}/$filename") || upload_result=$?
           fi
           
-          if [ $upload_result -eq 0 ]; then
-            echo "✅ Successfully uploaded: $filename"
+          echo "HTTP Response Code: $http_code"
+          
+          if [ $upload_result -eq 0 ] && ([ "$http_code" = "200" ] || [ "$http_code" = "201" ] || [ "$http_code" = "204" ]); then
+            echo "✅ Successfully uploaded: $filename (HTTP $http_code)"
             success=$((success + 1))
           else
-            echo "❌ Error: Failed to upload $filename (curl exit code: $upload_result)"
+            echo "❌ Error: Failed to upload $filename (curl exit code: $upload_result, HTTP code: $http_code)"
             failed=$((failed + 1))
           fi
           
