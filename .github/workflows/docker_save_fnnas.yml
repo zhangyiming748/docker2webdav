@@ -1,0 +1,66 @@
+name: Docker Image Backup to FnOS WebDAV
+
+on:
+  push:
+    branches: [ webdav ]
+  workflow_dispatch:
+
+env:
+  WEBDAV_USER: ${{ secrets.WEBDAV_USER }}
+  WEBDAV_PWD: ${{ secrets.WEBDAV_PWD }}
+  WEBDAV_URL: ${{ secrets.WEBDAV_URL }}
+
+jobs:
+  backup-docker-images:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+
+    - name: Install WebDAV client (curl)
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y curl
+
+    - name: Process each Docker image
+      run: |
+        while IFS= read -r image; do
+          # Skip empty lines and comments
+          [[ -z "$image" || "$image" =~ ^#.*$ ]] && continue
+          
+          echo "Processing image: $image"
+          
+          # Add 'latest' tag if no tag specified
+          if [[ ! "$image" =~ : ]]; then
+            image="${image}:latest"
+          fi
+          
+          # Create a safe filename from the image name
+          filename=$(echo "$image" | sed 's/[\/:*?"<>|]/_/g').tar
+          
+          # Pull the Docker image
+          echo "Pulling image: $image"
+          docker pull "$image"
+          
+          # Save the image as tar file
+          echo "Saving image to: $filename"
+          docker save -o "$filename" "$image"
+          
+          # Upload to WebDAV using curl
+          echo "Uploading $filename to WebDAV"
+          curl -T "$filename" -u "${WEBDAV_USER}:${WEBDAV_PWD}" "${WEBDAV_URL}/$filename"
+          
+          # Clean up - remove tar file and Docker image
+          echo "Cleaning up..."
+          rm -f "$filename"
+          docker rmi "$image"
+          
+          echo "Completed processing: $image"
+          echo "---"
+        done < images.txt
+        
+        echo "All images processed successfully!"

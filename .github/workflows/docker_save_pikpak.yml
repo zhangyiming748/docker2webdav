@@ -1,10 +1,4 @@
-# 我在GitHub对应的仓库上设置了三个环境变量 WEBDAV_USER, WEBDAV_PWD, WEBDAV_URL
-# 想实现的功能是下载仓库中设置好的docker镜像列表 images.txt 里边每行一个镜像 如果后面没写tag tag就默认为latest
-# 然后直接保存这些镜像为tar包 并且上传到webdav服务器
-# 由于GitHub action 默认的空间有限 所以打包出一个镜像 然后上传 上传成功后删除 不仅删除这个tar docker rmi 也删除这个镜像 然后再进行下一个镜像 避免多个tag包同时存在工作流runner中导致空间报警
-# 工作流触发条件为手动触发或者每次push到release分支触发
-
-name: Docker Image Backup to WebDAV
+name: Docker Image Backup to Pikpak WebDAV
 
 on:
   push:
@@ -12,9 +6,10 @@ on:
   workflow_dispatch:
 
 env:
-  WEBDAV_USER: ${{ secrets.WEBDAV_USER }}
-  WEBDAV_PWD: ${{ secrets.WEBDAV_PWD }}
-  WEBDAV_URL: ${{ secrets.WEBDAV_URL }}
+  WEBDAV_USER: ${{ secrets.P_WEBDAV_USER }}
+  WEBDAV_PWD: ${{ secrets.P_WEBDAV_PWD }}
+  WEBDAV_URL: ${{ secrets.P_WEBDAV_URL }}
+  WEBDAV_BEARERTOKEN: ${{ secrets.P_WEBDAV_BEARERTOKEN }}
 
 jobs:
   backup-docker-images:
@@ -56,9 +51,17 @@ jobs:
           echo "Saving image to: $filename"
           docker save -o "$filename" "$image"
           
-          # Upload to WebDAV using curl
+          # Upload to WebDAV using curl with Bearer Token
           echo "Uploading $filename to WebDAV"
-          curl -T "$filename" -u "${WEBDAV_USER}:${WEBDAV_PWD}" "${WEBDAV_URL}/$filename"
+          if [ -n "${WEBDAV_BEARERTOKEN}" ]; then
+            # Use Bearer Token authentication
+            curl -T "$filename" \
+              -H "Authorization: Bearer ${WEBDAV_BEARERTOKEN}" \
+              "${WEBDAV_URL}/$filename"
+          else
+            # Use basic authentication
+            curl -T "$filename" -u "${WEBDAV_USER}:${WEBDAV_PWD}" "${WEBDAV_URL}/$filename"
+          fi
           
           # Clean up - remove tar file and Docker image
           echo "Cleaning up..."
