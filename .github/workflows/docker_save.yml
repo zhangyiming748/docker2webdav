@@ -1,0 +1,75 @@
+# 我在GitHub对应的仓库上设置了三个环境变量 WEBDAV_USER, WEBDAV_PWD, WEBDAV_URL
+# 想实现的功能是下载仓库中设置好的docker镜像列表 images.txt 里边每行一个镜像 如果后面没写tag tag就默认为latest
+# 然后直接保存这些镜像为tar包 并且上传到webdav服务器
+# 由于GitHub action 默认的空间有限 所以打包出一个镜像 然后上传 上传成功后删除 不仅删除这个tar docker rmi 也删除这个镜像 然后再进行下一个镜像 避免多个tag包同时存在工作流runner中导致空间报警
+# 工作流触发条件为手动触发或者每次push到release分支触发
+
+name: Docker Image Backup to WebDAV
+
+on:
+  push:
+    branches: [ release ]
+  workflow_dispatch:
+
+env:
+  WEBDAV_USER: ${{ secrets.WEBDAV_USER }}
+  WEBDAV_PWD: ${{ secrets.WEBDAV_PWD }}
+  WEBDAV_URL: ${{ secrets.WEBDAV_URL }}
+
+jobs:
+  backup-docker-images:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+
+    - name: Install WebDAV client (cadaver)
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cadaver
+
+    - name: Process each Docker image
+      run: |
+        while IFS= read -r image; do
+          # Skip empty lines and comments
+          [[ -z "$image" || "$image" =~ ^#.*$ ]] && continue
+          
+          echo "Processing image: $image"
+          
+          # Add 'latest' tag if no tag specified
+          if [[ ! "$image" =~ : ]]; then
+            image="${image}:latest"
+          fi
+          
+          # Create a safe filename from the image name
+          filename=$(echo "$image" | sed 's/[\/:*?"<>|]/_/g').tar
+          
+          # Pull the Docker image
+          echo "Pulling image: $image"
+          docker pull "$image"
+          
+          # Save the image as tar file
+          echo "Saving image to: $filename"
+          docker save -o "$filename" "$image"
+          
+          # Upload to WebDAV
+          echo "Uploading $filename to WebDAV"
+          cadaver "$WEBDAV_URL" <<EOF
+          put "$filename"
+          bye
+          EOF
+          
+          # Clean up - remove tar file and Docker image
+          echo "Cleaning up..."
+          rm -f "$filename"
+          docker rmi "$image"
+          
+          echo "Completed processing: $image"
+          echo "---"
+        done < images.txt
+        
+        echo "All images processed successfully!"

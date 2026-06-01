@@ -1,0 +1,2 @@
+zhangyiming748/stand:latest
+ubuntu:latest
