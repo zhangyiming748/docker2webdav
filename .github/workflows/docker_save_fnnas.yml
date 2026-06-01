@@ -1,10 +1,13 @@
+# 工作流名称：将 Docker 镜像备份到 FnOS WebDAV
 name: Docker Image Backup to FnOS WebDAV
 
+# 触发条件：当推送到 webdav 分支或手动触发时执行
 on:
   push:
     branches: [ webdav ]
   workflow_dispatch:
 
+# 环境变量：从 GitHub Secrets 中读取 WebDAV 认证信息
 env:
   WEBDAV_USER: ${{ secrets.WEBDAV_USER }}
   WEBDAV_PWD: ${{ secrets.WEBDAV_PWD }}
@@ -12,49 +15,54 @@ env:
 
 jobs:
   backup-docker-images:
+    # 在最新版本的 Ubuntu 运行器上执行
     runs-on: ubuntu-latest
     
     steps:
+    # 步骤 1：检出代码仓库，获取 images.txt 文件
     - name: Checkout repository
       uses: actions/checkout@v6
 
+    # 步骤 2：设置 Docker Buildx，用于后续的 Docker 操作
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v4
 
+    # 步骤 3：安装 curl 工具，用于后续通过 HTTP 协议上传文件到 WebDAV
     - name: Install WebDAV client (curl)
       run: |
         sudo apt-get update
         sudo apt-get install -y curl
 
+    # 步骤 4：遍历 images.txt 中的每一行，处理对应的 Docker 镜像
     - name: Process each Docker image
       run: |
         while IFS= read -r image; do
-          # Skip empty lines and comments
+          # 跳过空行和以 # 开头的注释行
           [[ -z "$image" || "$image" =~ ^#.*$ ]] && continue
           
           echo "Processing image: $image"
           
-          # Add 'latest' tag if no tag specified
+          # 如果镜像名没有指定标签，则默认添加 :latest 标签
           if [[ ! "$image" =~ : ]]; then
             image="${image}:latest"
           fi
           
-          # Create a safe filename from the image name
+          # 将镜像名中的特殊字符替换为下划线，生成安全的文件名
           filename=$(echo "$image" | sed 's/[\/:*?"<>|]/_/g').tar
           
-          # Pull the Docker image
+          # 从 Docker Hub 拉取指定的镜像
           echo "Pulling image: $image"
           docker pull "$image"
           
-          # Save the image as tar file
+          # 将 Docker 镜像保存为 tar 归档文件
           echo "Saving image to: $filename"
           docker save -o "$filename" "$image"
           
-          # Upload to WebDAV using curl
+          # 使用 curl 将 tar 文件上传到 WebDAV 服务器（使用基本认证）
           echo "Uploading $filename to WebDAV"
           curl -T "$filename" -u "${WEBDAV_USER}:${WEBDAV_PWD}" "${WEBDAV_URL}/$filename"
           
-          # Clean up - remove tar file and Docker image
+          # 清理本地文件：删除生成的 tar 文件和已拉取的 Docker 镜像以释放空间
           echo "Cleaning up..."
           rm -f "$filename"
           docker rmi "$image"
