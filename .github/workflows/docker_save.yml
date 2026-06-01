@@ -59,9 +59,9 @@ jobs:
           # Upload to WebDAV
           echo "Uploading $filename to WebDAV"
           cadaver "$WEBDAV_URL" <<'EOF'
-put "$filename"
-bye
-EOF
+          put "$filename"
+          bye
+          EOF
           
           # Clean up - remove tar file and Docker image
           echo "Cleaning up..."
