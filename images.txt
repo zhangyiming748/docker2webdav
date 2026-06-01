@@ -1,2 +1,2 @@
-zhangyiming748/stand:latest
+alpine:latest
 ubuntu:latest

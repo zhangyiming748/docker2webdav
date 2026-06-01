@@ -8,7 +8,7 @@ name: Docker Image Backup to WebDAV
 
 on:
   push:
-    branches: [ release ]
+    branches: [ webdav ]
   workflow_dispatch:
 
 env:
