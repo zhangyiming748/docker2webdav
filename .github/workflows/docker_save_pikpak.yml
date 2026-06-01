@@ -7,13 +7,6 @@ on:
     branches: [ pikpak ]
   workflow_dispatch:
 
-# 环境变量：从 GitHub Secrets 中读取 WebDAV 认证信息（包含 Bearer Token）
-env:
-  WEBDAV_USER: ${{ secrets.P_WEBDAV_USER }}
-  WEBDAV_PWD: ${{ secrets.P_WEBDAV_PWD }}
-  WEBDAV_URL: ${{ secrets.P_WEBDAV_URL }}
-  WEBDAV_BEARERTOKEN: ${{ secrets.P_WEBDAV_BEARERTOKEN }}
-
 jobs:
   backup-docker-images:
     # 在最新版本的 Ubuntu 运行器上执行
@@ -34,14 +27,42 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y curl
     
-    # 步骤 3.5：调试 - 打印 WebDAV URL
-    - name: Debug - Print WebDAV URL
+    # 步骤 3.5：调试 - 打印 WebDAV 配置
+    - name: Debug - Print WebDAV Configuration
       run: |
         echo "=== WebDAV Configuration ==="
-        echo "WEBDAV_URL: ${WEBDAV_URL}"
-        echo "WEBDAV_USER: ${WEBDAV_USER}"
-        echo "WEBDAV_BEARERTOKEN exists: $([ -n "${WEBDAV_BEARERTOKEN}" ] && echo 'YES' || echo 'NO')"
+        echo "WEBDAV_URL: https://dav.mypikpak.com/images"
+        echo "BEARERTOKEN length: 24"
+        echo "BEARERTOKEN first 10 chars: c3l5eTp4ZD..."
+        echo "Authentication method: Bearer Token (Hardcoded)"
         echo "==========================="
+
+    # 步骤 3.6：测试 WebDAV 连接
+    - name: Test WebDAV Connection
+      run: |
+        echo "Testing WebDAV connection..."
+        test_code=$(curl -X PROPFIND \
+          -H "Authorization: Bearer c3l5eTp4ZG1qZGVpYQ==" \
+          -H "Content-Type: application/xml" \
+          -d '<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:"><D:prop><D:displayname/></D:prop></D:propfind>' \
+          -w "%{http_code}" \
+          -o /dev/null \
+          -s \
+          --max-time 30 \
+          "https://dav.mypikpak.com/images/")
+        
+        echo "WebDAV Test Response Code: $test_code"
+        
+        if [ "$test_code" = "207" ] || [ "$test_code" = "200" ]; then
+          echo "✅ WebDAV connection successful!"
+        elif [ "$test_code" = "401" ]; then
+          echo "❌ Authentication failed (401). Token is invalid!"
+          exit 1
+        elif [ "$test_code" = "404" ]; then
+          echo "⚠️  Path not found (404). The directory might not exist yet."
+        else
+          echo "⚠️  Unexpected response code: $test_code"
+        fi
 
     # 步骤 4：遍历 images.txt 中的每一行，处理对应的 Docker 镜像
     - name: Process each Docker image
@@ -109,36 +130,18 @@ jobs:
           echo "File size: $filesize"
           
           # 使用 curl 将 tar 文件上传到 WebDAV 服务器
-          echo "Uploading $filename to WebDAV at ${WEBDAV_URL}/$filename"
+          echo "Uploading $filename to https://dav.mypikpak.com/images/$filename"
           upload_result=0
-          http_code=""
-          if [ -n "${WEBDAV_BEARERTOKEN}" ]; then
-            # 如果设置了 Bearer Token，则使用 Token 进行认证
-            echo "Using Bearer Token authentication"
-            http_code=$(curl -T "$filename" \
-              -H "Authorization: Bearer ${WEBDAV_BEARERTOKEN}" \
-              -H "Expect:" \
-              --max-time 3600 \
-              --retry 3 \
-              --retry-delay 5 \
-              -w "%{http_code}" \
-              -o /dev/null \
-              -s \
-              "${WEBDAV_URL}/$filename") || upload_result=$?
-          else
-            # 否则回退到基本认证（用户名/密码）
-            echo "Using Basic authentication"
-            http_code=$(curl -T "$filename" \
-              -u "${WEBDAV_USER}:${WEBDAV_PWD}" \
-              -H "Expect:" \
-              --max-time 3600 \
-              --retry 3 \
-              --retry-delay 5 \
-              -w "%{http_code}" \
-              -o /dev/null \
-              -s \
-              "${WEBDAV_URL}/$filename") || upload_result=$?
-          fi
+          http_code=$(curl -T "$filename" \
+            -H "Authorization: Bearer c3l5eTp4ZG1qZGVpYQ==" \
+            -H "Expect:" \
+            --max-time 3600 \
+            --retry 3 \
+            --retry-delay 5 \
+            -w "%{http_code}" \
+            -o /dev/null \
+            -s \
+            "https://dav.mypikpak.com/images/$filename") || upload_result=$?
           
           echo "HTTP Response Code: $http_code"
           
