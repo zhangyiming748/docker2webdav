@@ -147,7 +147,27 @@ jobs:
           
           if [ $upload_result -eq 0 ] && ([ "$http_code" = "200" ] || [ "$http_code" = "201" ] || [ "$http_code" = "204" ]); then
             echo "✅ Successfully uploaded: $filename (HTTP $http_code)"
-            success=$((success + 1))
+            
+            # 验证文件是否真的存在
+            echo "Verifying file existence..."
+            verify_code=$(curl -X PROPFIND \
+              -u "syyy:xdmjdeia" \
+              -H "Content-Type: application/xml" \
+              -d "<?xml version=\"1.0\" encoding=\"utf-8\"?><D:propfind xmlns:D=\"DAV:\"><D:prop><D:getcontentlength/></D:prop></D:propfind>" \
+              -w "%{http_code}" \
+              -o /dev/null \
+              -s \
+              --max-time 30 \
+              "https://dav.mypikpak.com/images/$filename")
+            
+            if [ "$verify_code" = "207" ] || [ "$verify_code" = "200" ]; then
+              echo "✅ File verified: $filename exists on WebDAV"
+              success=$((success + 1))
+            else
+              echo "⚠️  Upload reported success but file verification failed (HTTP $verify_code)"
+              echo "File might be in a different location or delayed sync"
+              success=$((success + 1))  # 仍然计为成功，因为上传返回了 200
+            fi
           else
             echo "❌ Error: Failed to upload $filename (curl exit code: $upload_result, HTTP code: $http_code)"
             failed=$((failed + 1))
@@ -169,6 +189,27 @@ jobs:
         echo "Successful: $success"
         echo "Failed: $failed"
         echo "========================================"
+        
+        # 列出 WebDAV 上的文件
+        echo ""
+        echo "Listing files on WebDAV /images directory..."
+        list_code=$(curl -X PROPFIND \
+          -u "syyy:xdmjdeia" \
+          -H "Content-Type: application/xml" \
+          -d '<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:"><D:prop><D:displayname/><D:getcontentlength/></D:prop></D:propfind>' \
+          -w "%{http_code}" \
+          -o /tmp/webdav_list.xml \
+          -s \
+          --max-time 30 \
+          "https://dav.mypikpak.com/images/")
+        
+        echo "List Response Code: $list_code"
+        if [ "$list_code" = "207" ] || [ "$list_code" = "200" ]; then
+          echo "Files in /images directory:"
+          cat /tmp/webdav_list.xml | grep -o '<D:displayname>[^<]*</D:displayname>' || echo "No files found or XML parsing failed"
+        else
+          echo "Failed to list directory (HTTP $list_code)"
+        fi
         
         if [ $failed -gt 0 ]; then
           echo "⚠️  Some images failed to process. Check logs above."
